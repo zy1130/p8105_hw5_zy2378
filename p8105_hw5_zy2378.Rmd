@@ -1,0 +1,193 @@
+---
+title: "p8105_hw5_zy2378"
+author: "zy"
+date: "11/19/2021"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidyfst)
+library(readr)
+library(ggplot2)
+```
+
+```{r}
+homicides_df=
+  readr::read_csv("./data/homicide-data.csv")%>%
+  mutate(city_state=str_c(city,state))
+
+number_homicides_df=
+  homicides_df%>%
+  group_by(city_state,disposition)%>%
+  summarise(n=n())%>%
+  pivot_wider(names_from="disposition",values_from="n")%>%
+  janitor::clean_names()%>%
+  replace_na_dt(to=0)%>%
+  mutate(number_of_homicides=closed_by_arrest+closed_without_arrest+open_no_arrest)%>%
+  select(city_state,open_no_arrest,number_of_homicides)%>%
+  rename(number_of_unsolved_homicides=open_no_arrest)
+  
+number_homicides_df
+  
+
+homicides_df
+```
+
+```{r}
+homicides_df=
+  read_csv("./data/homicide-data.csv",na=c("","Unknown"))%>%
+  mutate(
+    city_state=str_c(city,state),
+    resolution=case_when(
+      disposition=="Closed without arrest"  ~"unsolved",
+      disposition=="Open/No arrest"         ~"unsolved",
+      disposition=="Closed by arrest"       ~"solved"
+    ))%>%
+  relocate(city_state)%>%
+  filter(city_state!="TulsaAL")
+homicides_df
+
+```
+
+The dataset have 52179 rows, and 12 columns. Key variables include victim_race, victim_age, victim_sex,etc.
+```{r}
+baltimore_df=
+  homicides_df%>%
+  filter(city_state=="BaltimoreMD")
+baltimore_summary=
+  baltimore_df%>%
+  summarize(
+    unsolved=sum(resolution=="unsolved"),
+    n=n()
+      )
+baltimore_test=
+  prop.test(
+  x=baltimore_summary%>%pull(unsolved),
+  n=baltimore_summary%>%pull(n)
+    )
+baltimore_test%>%
+  broom::tidy()
+  
+```
+```{r}
+prop_test_function=function(city_df){
+  city_summary=
+    city_df%>%
+    summarize(unsolved=sum(resolution=="unsolved"),
+              n=n()
+              )
+city_test=
+  prop.test(
+  x=city_summary%>%pull(unsolved),
+  n=city_summary%>%pull(n)
+    )
+return(city_test)
+}
+prop_test_function(baltimore_df)
+
+```
+
+```{r}
+nested_df=
+  homicides_df%>%
+  nest(data=uid:resolution)%>%
+  mutate(
+    test_results=map(data,prop_test_function),
+    tidy_results=map(test_results,broom::tidy)
+  )%>%
+  select(city_state,tidy_results)
+
+results_df=
+  nested_df%>%
+  unnest(tidy_results)%>%
+  select(city_state,estimate,starts_with("conf"))
+results_df
+
+nested_df%>%
+  filter(city_state=="BaltimoreMD")%>%
+  pull(tidy_results)
+
+```
+
+```{r}
+results_df%>%
+  mutate(city_state=fct_reorder(city_state,estimate))%>%
+  ggplot(aes(x=city_state,y=estimate))+
+  geom_point()+
+  geom_errorbar(aes(ymin=conf.low,ymax=conf.high))+
+  theme(axis.text.x=element_text(angle=90,vjust=0.5,hjust=1))
+```
+
+```{r}
+homicides_df%>%
+  group_by(city_state)%>%
+  summarize(unsolved=sum(resolution=="unsolved"),n=n())%>%
+  mutate(
+    test_results=map2(unsolved,n,prop.test),
+    tidy_results=map(test_results,broom::tidy)
+    )%>%
+  select(city_state,tidy_results)%>%
+  unnest(tidy_results)%>%
+  select(city_state,estimate,starts_with("conf"))
+```
+## Problem2
+```{r}
+files=list.files("./data/data/")
+files_df=
+  tibble(
+  files=list.files("./data/data/"))
+files_df
+
+data_df=
+  files_df%>%
+  mutate(all_files=map(.x=str_c("./data/data/",files),~readr::read_csv(.x)))%>%
+  unnest(all_files)%>%
+  mutate(control_arm=substr(files, 1, 3))%>%
+  mutate(subject_id=substr(files, 5, 6))%>%
+  select(-files)%>%
+  relocate(control_arm,subject_id)
+  
+data_df
+
+data_df%>%
+  pivot_longer(week_1:week_8,names_to="week",values_to = "value")%>%
+  ggplot(aes(x=week,y=value,group=subject_id,color=subject_id))+
+  geom_point()+
+  geom_line()
+
+```
+From the graph, line with lower subject id tend to have smaller fluctuation compare to higher subject id.
+
+## Problem3
+```{r}
+set.seed(10)
+
+iris_with_missing = iris %>% 
+  map_df(~replace(.x, sample(1:150, 20), NA)) %>%
+  mutate(Species = as.character(Species))
+
+iris_with_missing
+
+fill_in_missing=function(vector){
+  if(is.numeric(vector)){
+    vector=
+      replace_na(vector,mean(vector,na.rm=TRUE))
+  }
+  else
+  if(is.character(vector)){
+    vector=
+    replace_na(vector,"virginica")
+  }
+  return(vector)
+}
+
+
+map_dfr(iris_with_missing,fill_in_missing)
+
+
+
+```
+
+
+
